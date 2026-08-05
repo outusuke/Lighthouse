@@ -28,7 +28,10 @@
 #include <dbghelp.h>
 #pragma comment(lib, "dbghelp.lib")
 #define LH_FLAGTRACE_STACKS_WIN 1
-#elif defined(__linux__) || defined(__APPLE__)
+// Android is __linux__ too, and ships <execinfo.h> at every API level while only
+// declaring backtrace() from API 33. Below that this falls through to the
+// "call stacks are unavailable" branch rather than failing to compile.
+#elif (defined(__linux__) || defined(__APPLE__)) && (!defined(__ANDROID__) || __ANDROID_API__ >= 33)
 #include <cxxabi.h>
 #include <dlfcn.h>
 #include <execinfo.h>
