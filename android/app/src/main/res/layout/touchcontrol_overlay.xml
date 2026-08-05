@@ -1,0 +1,296 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The on-screen N64 pad, laid out for Banjo-Kazooie.
+
+    Unlike a racer or a rail shooter, this game needs the whole controller: the
+    C buttons aim the camera and enter first person, Z crouches into the
+    Wonderwing and Talon Trot, and L/R handle the camera modes, so all of them
+    get a real target rather than being folded into a drag area.
+
+    Layout, left to right:
+      left edge    L and Z stacked, d-pad, analog stick
+      centre       Menu (top), Start (bottom), Mods beside Menu when open
+      right edge   R (top), C diamond, then B and A in the thumb corner
+
+    Every cluster hangs off a single anchored member rather than constraining
+    its members to each other in a ring: a ring has no absolute position and
+    gives ConstraintLayout a circular dependency it cannot resolve, which
+    collapses the whole group against the parent's left edge.
+
+    Everything drives a virtual SDL pad through MainActivity; see
+    ControllerButtons.kt for which SDL input each id ends up on.
+-->
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/transparent"
+    android:fitsSystemWindows="true">
+
+    <!-- Everything the Hide button collapses; the toggle itself stays outside. -->
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/button_group"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <!-- ============================ left ============================ -->
+
+        <Button
+            android:id="@+id/buttonL"
+            android:layout_width="100dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="16dp"
+            android:layout_marginTop="16dp"
+            android:background="@drawable/ic_trigger_button_left"
+            android:text="L"
+            android:textColor="#25FFFFFF"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
+
+        <!-- Under L rather than under R: Z pairs with the stick for crouch moves. -->
+        <Button
+            android:id="@+id/buttonZ"
+            android:layout_width="100dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="16dp"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/ic_trigger_button_left"
+            android:text="Z"
+            android:textColor="#25FFFFFF"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/buttonL" />
+
+        <!--
+            140dp rather than 150: the d-pad has to fit in the band between Z and
+            the stick, and at 150 the cluster ran into one or the other.
+        -->
+        <FrameLayout
+            android:id="@+id/left_joystick"
+            android:layout_width="140dp"
+            android:layout_height="140dp"
+            android:layout_marginStart="16dp"
+            android:layout_marginBottom="16dp"
+            android:background="@drawable/ic_stick"
+            android:clipToPadding="false"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintStart_toStartOf="parent">
+
+            <ImageView
+                android:id="@+id/left_joystick_knob"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_gravity="center"
+                android:background="@drawable/ic_button" />
+        </FrameLayout>
+
+        <!--
+            buttonDpadDown is the anchored member and sits above the stick, so
+            the cluster grows upward away from it. Anchoring the middle row
+            instead — what this did before — leaves the bottom button hanging
+            below the anchor and overlapping the stick.
+        -->
+        <Button
+            android:id="@+id/buttonDpadDown"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_marginBottom="10dp"
+            android:background="@android:color/transparent"
+            app:layout_constraintBottom_toTopOf="@id/left_joystick"
+            app:layout_constraintEnd_toEndOf="@id/left_joystick"
+            app:layout_constraintStart_toStartOf="@id/left_joystick" />
+
+        <Button
+            android:id="@+id/buttonDpadUp"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_marginBottom="30dp"
+            android:background="@android:color/transparent"
+            app:layout_constraintBottom_toTopOf="@id/buttonDpadDown"
+            app:layout_constraintEnd_toEndOf="@id/buttonDpadDown"
+            app:layout_constraintStart_toStartOf="@id/buttonDpadDown" />
+
+        <!-- Top and bottom both bound, so these centre in the gap. -->
+        <Button
+            android:id="@+id/buttonDpadLeft"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:background="@android:color/transparent"
+            app:layout_constraintBottom_toTopOf="@id/buttonDpadDown"
+            app:layout_constraintEnd_toStartOf="@id/buttonDpadDown"
+            app:layout_constraintTop_toBottomOf="@id/buttonDpadUp" />
+
+        <Button
+            android:id="@+id/buttonDpadRight"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:background="@android:color/transparent"
+            app:layout_constraintBottom_toTopOf="@id/buttonDpadDown"
+            app:layout_constraintStart_toEndOf="@id/buttonDpadDown"
+            app:layout_constraintTop_toBottomOf="@id/buttonDpadUp" />
+
+        <!-- Cosmetic cross behind the four targets. -->
+        <ImageView
+            android:id="@+id/dpadCross"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:src="@drawable/ic_cross"
+            app:layout_constraintBottom_toBottomOf="@id/buttonDpadDown"
+            app:layout_constraintEnd_toEndOf="@id/buttonDpadRight"
+            app:layout_constraintStart_toStartOf="@id/buttonDpadLeft"
+            app:layout_constraintTop_toTopOf="@id/buttonDpadUp" />
+
+        <!-- =========================== centre =========================== -->
+
+        <!-- Opens libultraship's menu (Escape) -->
+        <Button
+            android:id="@+id/buttonMenu"
+            android:layout_width="60dp"
+            android:layout_height="35dp"
+            android:layout_marginTop="20dp"
+            android:background="@drawable/ic_rectangular_button"
+            android:text="@string/menu_button"
+            android:textColor="#25FFFFFF"
+            android:textSize="12sp"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
+
+        <!-- Only while the in-game menu is open; MainActivity flips its visibility -->
+        <Button
+            android:id="@+id/buttonMods"
+            android:layout_width="60dp"
+            android:layout_height="35dp"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/ic_rectangular_button"
+            android:text="@string/mods_button"
+            android:textColor="#25FFFFFF"
+            android:textSize="12sp"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="@id/buttonMenu"
+            app:layout_constraintStart_toEndOf="@id/buttonMenu"
+            app:layout_constraintTop_toTopOf="@id/buttonMenu" />
+
+        <Button
+            android:id="@+id/buttonStart"
+            android:layout_width="56dp"
+            android:layout_height="32dp"
+            android:layout_marginBottom="10dp"
+            android:background="@drawable/ic_rectangular_button"
+            android:text="Start"
+            android:textColor="#25FFFFFF"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent" />
+
+        <!-- ============================ right =========================== -->
+
+        <Button
+            android:id="@+id/buttonR"
+            android:layout_width="100dp"
+            android:layout_height="48dp"
+            android:layout_marginTop="16dp"
+            android:layout_marginEnd="16dp"
+            android:background="@drawable/ic_trigger_button_right"
+            android:text="R"
+            android:textColor="#25FFFFFF"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
+
+        <Button
+            android:id="@+id/buttonA"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginEnd="24dp"
+            android:layout_marginBottom="24dp"
+            android:background="@drawable/ic_button"
+            android:text="A"
+            android:textColor="#25FFFFFF"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <Button
+            android:id="@+id/buttonB"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/ic_button"
+            android:text="B"
+            android:textColor="#25FFFFFF"
+            app:layout_constraintBottom_toTopOf="@id/buttonA"
+            app:layout_constraintEnd_toStartOf="@id/buttonA" />
+
+        <!--
+            C diamond, up and to the right of B and A: its right column sits
+            directly above A and its bottom clears B, which keeps the camera
+            controls under the same thumb without crowding the face buttons.
+            buttonCDown is the anchored member; the other three hang off it.
+        -->
+        <Button
+            android:id="@+id/buttonCDown"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_marginEnd="68dp"
+            android:layout_marginBottom="24dp"
+            android:background="@drawable/ic_button"
+            android:text="C"
+            android:textColor="#25FFFFFF"
+            android:textSize="11sp"
+            app:layout_constraintBottom_toTopOf="@id/buttonB"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <Button
+            android:id="@+id/buttonCUp"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_marginBottom="44dp"
+            android:background="@drawable/ic_button"
+            android:text="C"
+            android:textColor="#25FFFFFF"
+            android:textSize="11sp"
+            app:layout_constraintBottom_toTopOf="@id/buttonCDown"
+            app:layout_constraintEnd_toEndOf="@id/buttonCDown"
+            app:layout_constraintStart_toStartOf="@id/buttonCDown" />
+
+        <!-- Top and bottom both bound, so these centre in the gap. -->
+        <Button
+            android:id="@+id/buttonCLeft"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="@drawable/ic_button"
+            android:text="C"
+            android:textColor="#25FFFFFF"
+            android:textSize="11sp"
+            app:layout_constraintBottom_toTopOf="@id/buttonCDown"
+            app:layout_constraintEnd_toStartOf="@id/buttonCDown"
+            app:layout_constraintTop_toBottomOf="@id/buttonCUp" />
+
+        <Button
+            android:id="@+id/buttonCRight"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="@drawable/ic_button"
+            android:text="C"
+            android:textColor="#25FFFFFF"
+            android:textSize="11sp"
+            app:layout_constraintBottom_toTopOf="@id/buttonCDown"
+            app:layout_constraintStart_toEndOf="@id/buttonCDown"
+            app:layout_constraintTop_toBottomOf="@id/buttonCUp" />
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+    <!--
+        Outside button_group so it survives hiding the controls. Top right,
+        inboard of R: the bottom-right corner belongs to A, and the two
+        overlapped there.
+    -->
+    <Button
+        android:id="@+id/buttonToggle"
+        android:layout_width="30dp"
+        android:layout_height="30dp"
+        android:layout_marginTop="26dp"
+        android:layout_marginEnd="132dp"
+        android:background="@drawable/ic_show"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>

@@ -159,8 +159,20 @@ endif()
 
 # Set game compilation version
 set(VERSION us)
-option(USE_NETWORKING "Enable networking features" ON)
+# SDL2_net has no NDK package and nothing fetches it for Android, so the
+# networking features are off there unless someone opts back in explicitly.
+if(ANDROID)
+    set(USE_NETWORKING_DEFAULT OFF)
+else()
+    set(USE_NETWORKING_DEFAULT ON)
+endif()
+option(USE_NETWORKING "Enable networking features" ${USE_NETWORKING_DEFAULT})
 set(SKIP_XCODE_VERSION_CHECK ON)
+
+if(ANDROID)
+    # Selects the GLES path in libultraship's Fast3D backend.
+    add_compile_definitions(USE_OPENGLES=1)
+endif()
 
 # Add compile definitions for the target
 add_compile_definitions(
@@ -178,7 +190,9 @@ add_compile_definitions(
 )
 
 # Find necessary libraries
-if (UNIX AND NOT APPLE)
+# Android is UNIX-but-not-APPLE too, and has no desktop GL or GLX to find; it
+# links GLESv3 and EGL instead, further down.
+if (UNIX AND NOT APPLE AND NOT ANDROID)
     find_package(OpenGL REQUIRED)
 endif()
 
@@ -225,7 +239,12 @@ file(GLOB_RECURSE ALL_FILES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
 
 list(FILTER ALL_FILES EXCLUDE REGEX "src/unused/")
 
-list(APPEND ALL_FILES ${CMAKE_CURRENT_SOURCE_DIR}/res/Resource.rc ${CMAKE_BINARY_DIR}/generated/build.c)
+list(APPEND ALL_FILES ${CMAKE_BINARY_DIR}/generated/build.c)
+
+# A Windows resource script; only MSVC has anything to compile it with.
+if(NOT ANDROID)
+    list(APPEND ALL_FILES ${CMAKE_CURRENT_SOURCE_DIR}/res/Resource.rc)
+endif()
 
 
 # Create source groups that match the real file directory paths
@@ -253,6 +272,12 @@ if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
         MACOSX_BUNDLE_INFO_PLIST ${IOS_DIR}/plist.in
         RESOURCE "${IMAGE_FILES};${STORYBOARD_FILE};${ICON_FILES}"
     )
+elseif(ANDROID)
+    # There is no executable on Android: SDLActivity dlopens the game as a
+    # shared library, and "main" is the name its Java glue looks for by default
+    # (see getLibraries() in MainActivity.kt).
+    add_library(${PROJECT_NAME} SHARED ${ALL_FILES})
+    set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "main")
 else()
     add_executable(${PROJECT_NAME} ${ALL_FILES})
 endif()
@@ -371,7 +396,25 @@ if (CMAKE_GENERATOR MATCHES "Visual Studio")
     )
 endif()
 
-add_subdirectory(libultraship ${CMAKE_CURRENT_BINARY_DIR}/libultraship)
+if(ANDROID)
+    # Has to run before add_subdirectory(libultraship): OVERRIDE_FIND_PACKAGE is
+    # what makes the find_package(<name> REQUIRED) calls further down resolve to
+    # the fetched copies instead of failing against a system install the NDK has
+    # no equivalent of.
+    include(cmake/dependencies/android.cmake)
+
+    # TCC compiles no mods for arm64, and the APK has nowhere to dlopen a plugin
+    # from, so neither buys anything and both drag in host-only machinery.
+    set(ENABLE_SCRIPTING OFF CACHE BOOL "" FORCE)
+    set(DISABLE_DLL_LOADER ON CACHE BOOL "" FORCE)
+endif()
+
+# Build into the binary tree, not the submodule's own source directory. Android
+# configures once per ABI, and an in-source build dir has them all writing the
+# same libImGui.a/libstb.a — whichever ABI ran last wins and the other fails to
+# link with "is incompatible with aarch64linux". Everywhere else this just stops
+# a build from leaving artefacts inside a submodule checkout.
+add_subdirectory(libultraship ${CMAKE_BINARY_DIR}/libultraship)
 add_dependencies(${PROJECT_NAME} libultraship)
 target_link_libraries(${PROJECT_NAME} PRIVATE libultraship)
 
@@ -480,6 +523,30 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "CafeOS")
     target_include_directories(${PROJECT_NAME} PRIVATE
         ${DEVKITPRO}/portlibs/wiiu/include/
     )
+elseif(ANDROID)
+    # Ogg and Vorbis resolve to the copies fetched in
+    # cmake/dependencies/android.cmake; the rest are NDK system libraries.
+    find_package(Ogg REQUIRED)
+    find_package(Vorbis REQUIRED)
+    set(ADDITIONAL_LIBRARY_DEPENDENCIES
+        "Ogg::ogg"
+        "Vorbis::vorbis"
+        "Vorbis::vorbisenc"
+        "Vorbis::vorbisfile"
+        GLESv3
+        EGL
+        android
+        log
+    )
+
+    # libultraship links libzip PRIVATE, so its include directories stop there —
+    # but O2rArchive.h includes <zip.h> and the game includes that header, so the
+    # game needs them too. Every other platform picks zip.h up from a system
+    # include path and never notices. zipconf.h is generated, hence the binary dir.
+    FetchContent_GetProperties(libzip)
+    if(libzip_SOURCE_DIR)
+        target_include_directories(${PROJECT_NAME} PRIVATE ${libzip_SOURCE_DIR}/lib ${libzip_BINARY_DIR})
+    endif()
 else()
     find_package(Ogg REQUIRED)
     find_package(Vorbis REQUIRED)
@@ -699,7 +766,11 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
           >
       )
   else()
-      if(NOT DEFINED CPU_OPTION)
+      # Skipped when cross-compiling: CMAKE_SYSTEM_PROCESSOR describes the
+      # target, but -mcpu=native/-msse2 are resolved against the machine doing
+      # the building. Android reports aarch64 for arm64-v8a and would take
+      # -mcpu=native straight into a wrong-CPU or failed build.
+      if(NOT DEFINED CPU_OPTION AND NOT CMAKE_CROSSCOMPILING)
         if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
           set(CPU_OPTION -msse2 -mfpmath=sse)
         elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
@@ -739,7 +810,10 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
   endif()
 endif()
 
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
+# Torch is linked into the game on Android and run through JNI against the
+# player's own ROM, so the host-side extraction targets have nothing to build
+# with: the NDK toolchain cannot produce a runnable torch executable.
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch" AND NOT ANDROID)
 include(ExternalProject)
 ExternalProject_Add(TorchExternal
 	PREFIX TorchExternal
@@ -831,5 +905,9 @@ elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
     set(CPACK_GENERATOR "Bundle")
 endif()
 
-set(CPACK_PROJECT_CONFIG_FILE ${CMAKE_SOURCE_DIR}/cmake/configure-packaging.cmake)
-include(cmake/packaging.cmake)
+# The APK is assembled by Gradle from the built .so, so there is nothing here
+# for CPack to package.
+if(NOT ANDROID)
+    set(CPACK_PROJECT_CONFIG_FILE ${CMAKE_SOURCE_DIR}/cmake/configure-packaging.cmake)
+    include(cmake/packaging.cmake)
+endif()

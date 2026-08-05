@@ -49,6 +49,19 @@ Your ROM needs to be in .z64 format. If it's in .n64 format, use the following t
 * Extract every file from the zip into a folder of your choosing.
 * Run lighthouse and select your compatible ROM.
 
+#### Android
+* Install the APK and open it.
+* Tap **Choose Banjo-Kazooie ROM** and pick your `.z64` through the file picker.
+
+The ROM is verified against the checksums above, kept in the app's private
+storage, and converted into `bk.o2r` on the device — no PC and no game data in
+the APK. Extraction runs once and takes a few minutes.
+
+Everything the game reads and writes lives in
+`Android/data/com.lighthouse.android/files/`, which a file manager can reach:
+mods go in `mods/`, saves are in `saves/`. The **Mods** button appears next to
+**Menu** while the in-game menu is open, and manages both.
+
 # Configuration
 
 Lighthouse ships with a file with many standard controller mappings that can be used as-is with most controllers. If your controller isn't recognized by Lighthouse, or isn't working properly, you can create your own custom mapping using the built-in mapper in the Settings menu.
@@ -100,6 +113,38 @@ If you're interested in creating and/or packing your own custom asset `.o2r`/`.o
 
 ### Building
 If you want to manually compile Lighthouse, please consult the [building instructions](https://github.com/HarbourMasters/Lighthouse/blob/develop/docs/BUILDING.md).
+
+#### Building the Android APK
+
+Needs JDK 17, and the SDK components pinned in `android/app/build.gradle.kts`
+(NDK 30.0.15729638, CMake 3.30.3, platform 36). Point Gradle at your SDK with
+`android/local.properties` (`sdk.dir=/path/to/Android/Sdk`) or `$ANDROID_HOME`.
+
+`lighthouse.o2r` — the engine's own assets — is the one thing the app cannot
+build on device, because packing it needs a host Torch executable. Build it
+first, into the repository root:
+
+```sh
+make -C Torch type=release -j"$(nproc)"
+rm -rf port_staging && cp -r port port_staging
+cp -r libultraship/src/fast/shaders port_staging/shaders
+Torch/cmake-build-release/torch pack port_staging lighthouse.o2r o2r
+```
+
+Then:
+
+```sh
+android/gradlew -p android assembleDebug
+```
+
+The APK lands in `android/app/build/outputs/apk/debug/`. It builds `arm64-v8a`
+and `armeabi-v7a`, and bundles `lighthouse.o2r` together with `config.yml` and
+`assets/` so Torch can run on the device. No ROM or game data is packaged.
+
+Release builds are signed from `android/key.properties` (`storeFile`,
+`storePassword`, `keyAlias`, `keyPassword`) or the equivalent `KEYSTORE_FILE`,
+`KEYSTORE_PASSWORD`, `KEY_ALIAS` and `KEY_PASSWORD` environment variables, and
+fall back to the debug key when neither is set.
 
 ### Playtesting
 If you want to playtest a continuous integration build, you can find them at the links below. Keep in mind that these are for playtesting only, and you will likely encounter bugs and possibly crashes.

@@ -1,0 +1,105 @@
+name: Android
+
+# Android on its own, so a device test does not wait on the other platforms.
+# Runs on demand, and on pushes that touch something the APK actually contains.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'android/**'
+      - 'src/**'
+      - 'include/**'
+      - 'assets/**'
+      - 'cmake/**'
+      - 'port/**'
+      - 'config.yml'
+      - 'CMakeLists.txt'
+      - 'libultraship'
+      - 'Torch'
+      - '.github/workflows/android.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The engine archive is the one thing the app cannot build on device: packing
+  # it needs the Torch executable, and the NDK build has no host toolchain. The
+  # game's own assets are extracted from the player's ROM on device.
+  generate-port-o2r:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0 # full history so the libultraship submodule gitlink resolves
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y gcc g++ git cmake ninja-build lsb-release zlib1g-dev
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: android-o2r-${{ github.ref }}
+      # Mirrors the GeneratePortO2R target in CMakeLists.txt, which cannot run
+      # here because configuring the desktop build needs SDL2/ogg/vorbis too.
+      - name: Generate lighthouse.o2r
+        run: |
+          export PATH="/usr/lib/ccache:/usr/local/opt/ccache/libexec:$PATH"
+          make -C Torch type=release -j3
+          rm -rf port_staging
+          cp -r port port_staging
+          cp -r libultraship/src/fast/shaders port_staging/shaders
+          Torch/cmake-build-release/torch pack port_staging lighthouse.o2r o2r
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse.o2r
+          path: lighthouse.o2r
+          retention-days: 1
+
+  build-apk:
+    needs: generate-port-o2r
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Install Android SDK components
+        # NDK and SDK versions match android/app/build.gradle.kts
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "cmake;3.30.3" "ndk;30.0.15729638" "platforms;android-36" "build-tools;36.0.0" > /dev/null
+      - name: Install Python dependencies
+        run: pip install -r libultraship/requirements.txt
+      # gamedata.zip is packed from the repo root, so the o2r must land there first
+      - name: Download lighthouse.o2r
+        uses: actions/download-artifact@v4
+        with:
+          name: lighthouse.o2r
+          path: .
+      # Debug-signed and debuggable, which is what you want for sideloading a
+      # test build.
+      - name: Build debug APK
+        run: android/gradlew -p android assembleDebug
+      - name: Collect APK
+        run: |
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          ls -la "$APK" || (echo "ERROR: APK not found" && exit 1)
+          # Every asset GameAssets.kt opens by name. An APK missing any of them
+          # installs and launches fine, then fails on device during staging, so
+          # check here instead. Both ways of losing one — a build directory the
+          # asset merge never waited for, a source file gitignore swallowed —
+          # leave CI green and the APK unusable.
+          for entry in assets/gamedata.zip assets/gamedata.version \
+                       assets/gamecontrollerdb.txt assets/mods/place_mods_here.txt; do
+            unzip -Z1 "$APK" | grep -qx "$entry" || (echo "ERROR: $entry missing from the APK" && exit 1)
+          done
+          cp "$APK" Lighthouse-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Lighthouse-debug-apk
+          path: Lighthouse-debug.apk

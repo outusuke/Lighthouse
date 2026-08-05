@@ -251,6 +251,11 @@ bool GameExtractor::GenerateOTR(std::atomic<size_t>& assetCount, std::atomic<siz
         fs::path(Ship::Context::LocateFileAcrossAppDirs("assets", appShortName)).parent_path().generic_string();
     const std::string game_path = Ship::Context::GetAppDirectoryPath(appShortName);
 
+    return GenerateOTRTo(assetCount, totalAssets, assets_path, game_path);
+}
+
+bool GameExtractor::GenerateOTRTo(std::atomic<size_t>& assetCount, std::atomic<size_t>& totalAssets,
+                                  const std::string& assets_path, const std::string& game_path) {
     // Count symbol_map entries for parse-phase total
     totalAssets = 0;
     try {
@@ -342,6 +347,16 @@ bool GameExtractor::GenerateOTR(std::atomic<size_t>& assetCount, std::atomic<siz
             promptCustomCode = (ccKind == BK64::CustomCodeKind::BB_INJECTED);
         }
     }
+    if (promptCustomCode && !this->mInteractive) {
+        // The answer comes from the ImGui main loop, and a non-interactive caller
+        // has none running, so the wait below would never end. Reachable only if
+        // such a caller supplied a romhack itself — the Android launcher gates on
+        // the retail SHA-1s before it gets here.
+        SPDLOG_WARN("[GameExtractor] Romhack ships custom code ({}); continuing without a prompt because "
+                    "the caller is non-interactive.",
+                    rebuiltOverlay ? "rebuilt code overlay, non-BB build" : "injected MIPS code blob");
+        promptCustomCode = false;
+    }
     if (promptCustomCode) {
         SPDLOG_WARN("[GameExtractor] Romhack ships custom code ({}); prompting user before extraction.",
                     rebuiltOverlay ? "rebuilt code overlay, non-BB build" : "injected MIPS code blob");
@@ -412,6 +427,11 @@ void GameExtractor::GetRoms(std::vector<std::string>& roms) {
 }
 
 bool GameExtractor::GenerateOTR() {
+    return false;
+}
+
+bool GameExtractor::GenerateOTRTo(std::atomic<size_t>& assetCount, std::atomic<size_t>& totalAssets,
+                                  const std::string& assets_path, const std::string& game_path) {
     return false;
 }
 
