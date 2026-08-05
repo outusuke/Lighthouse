@@ -31,12 +31,23 @@ extern u8 gCompletedBottlesBonusGames[7];
 using nlohmann::json;
 using nlohmann::ordered_json;
 namespace fs = std::filesystem;
-const std::string savesFolderPathString(Ship::Context::GetPathRelativeToAppDirectory("saves"));
-const std::filesystem::path savesFolderPath(savesFolderPathString);
+// Resolved on first use rather than at load time. As namespace-scope globals
+// these ran during static initialisation, which on Android happens at dlopen —
+// before SDL has set up its JNI environment, so Ship::Context aborts the
+// process with "CallStaticObjectMethod received NULL jclass".
+static const std::string& savesFolderPathString() {
+    static const std::string path(Ship::Context::GetPathRelativeToAppDirectory("saves"));
+    return path;
+}
+
+static const std::filesystem::path& savesFolderPath() {
+    static const std::filesystem::path path(savesFolderPathString());
+    return path;
+}
 
 std::string SaveManager_GetSavePath(const std::string& filename) {
     std::string romName = GetActiveRomhackBasename();
-    std::string dir = romName.empty() ? savesFolderPathString
+    std::string dir = romName.empty() ? savesFolderPathString()
                                       : Ship::Context::GetPathRelativeToAppDirectory("saves/~romhacks/" + romName);
     std::error_code ec;
     fs::create_directories(dir, ec);
@@ -796,9 +807,9 @@ static void SaveGlobalData() {
 }
 
 void SaveManager_MoveInvalidSaveFile(const std::filesystem::path& fileName, const std::string& message) {
-    const std::filesystem::path filePath = savesFolderPath / fileName;
+    const std::filesystem::path filePath = savesFolderPath() / fileName;
     const std::filesystem::path backupFilePath =
-        savesFolderPath / (fileName.stem().string() + "_invalid_" + std::to_string(std::time(nullptr)) + ".json");
+        savesFolderPath() / (fileName.stem().string() + "_invalid_" + std::to_string(std::time(nullptr)) + ".json");
 
     try {
         if (std::filesystem::exists(filePath)) {
