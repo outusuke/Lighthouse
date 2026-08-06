@@ -62,6 +62,10 @@ Everything the game reads and writes lives in
 mods go in `mods/`, saves are in `saves/`. The **Mods** button appears next to
 **Menu** while the in-game menu is open, and manages both.
 
+The app asks for the internet permission because the Anchor online features
+under the **Network** tab need it. Nothing is sent unless you connect to a
+server yourself; the ROM never leaves the device.
+
 # Configuration
 
 Lighthouse ships with a file with many standard controller mappings that can be used as-is with most controllers. If your controller isn't recognized by Lighthouse, or isn't working properly, you can create your own custom mapping using the built-in mapper in the Settings menu.

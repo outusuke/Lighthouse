@@ -142,6 +142,12 @@ android {
                     "-DSDL_SHARED=ON",
                     "-DSDL_STATIC=OFF",
                     "-DHAVE_LD_VERSION_SCRIPT=OFF",
+                    // Stated outright rather than left to the option()'s
+                    // default. option() will not overwrite a value already in
+                    // CMakeCache.txt, so a build directory configured while
+                    // this was off stays off however the default changes, and
+                    // nothing about the Gradle build surfaces that.
+                    "-DUSE_NETWORKING=ON",
                     // Forced for every variant, debug included. The root
                     // CMakeLists tunes CMAKE_C_FLAGS_RELEASE and pairs it with
                     // -fno-strict-aliasing for the game's decompiled C; the

@@ -30,6 +30,14 @@
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <!--
+        The Anchor online features (USE_NETWORKING). Without this every socket
+        call fails with EACCES and the engine only reports a connect failure,
+        so the cause is not obvious from in-game.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!--
         No storage permissions: the ROM is read once through the document
         picker, and everything the game writes lives in the app's own external
         files directory (Android/data/com.lighthouse.android/files), which is

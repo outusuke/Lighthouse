@@ -33,6 +33,44 @@ if(NOT SDL2_FOUND)
     FetchContent_MakeAvailable(SDL2)
 endif()
 
+# ================================= SDL2_net =================================
+# What USE_NETWORKING (the Anchor online features) links against. A thin
+# wrapper over BSD sockets, which Bionic provides.
+#
+# Built shared, and that is not a free choice: SDL_net picks which SDL2 target
+# to look for from BUILD_SHARED_LIBS, asking for SDL2::SDL2-static in a static
+# build. This app builds SDL2 shared (SDLActivity dlopens libSDL2.so), so the
+# static target does not exist and SDL_net falls back to hunting for an
+# installed SDL2 that the NDK has none of. Shared makes it ask for SDL2::SDL2,
+# which is the target already in the build. The extra libSDL2_net.so is picked
+# up by the Android plugin along with the others, and the linker resolves it as
+# a dependency of libmain.so without the Java side naming it.
+find_package(SDL2_net QUIET)
+if(USE_NETWORKING AND NOT SDL2_net_FOUND)
+    set(SDL2NET_SAMPLES OFF)
+    set(SDL2NET_INSTALL OFF)
+    set(_lh_saved_build_shared_libs ${BUILD_SHARED_LIBS})
+    set(BUILD_SHARED_LIBS ON)
+    FetchContent_Declare(
+        SDL2_net
+        GIT_REPOSITORY https://github.com/libsdl-org/SDL_net.git
+        GIT_TAG release-2.2.0
+        GIT_SHALLOW TRUE
+        OVERRIDE_FIND_PACKAGE
+    )
+    FetchContent_MakeAvailable(SDL2_net)
+    set(BUILD_SHARED_LIBS ${_lh_saved_build_shared_libs})
+
+    # The engine includes <SDL2/SDL_net.h> — the path a system install gives it.
+    # The fetched source keeps SDL_net.h at its root and installs the SDL2/
+    # prefix only on `make install`, which never runs here, so mirror the header
+    # into the build tree the same way SDL2's own build stages its headers.
+    # Attached to the target so anything linking SDL2_net::SDL2_net picks it up.
+    file(MAKE_DIRECTORY "${sdl2_net_BINARY_DIR}/include/SDL2")
+    file(COPY "${sdl2_net_SOURCE_DIR}/SDL_net.h" DESTINATION "${sdl2_net_BINARY_DIR}/include/SDL2")
+    target_include_directories(SDL2_net INTERFACE "${sdl2_net_BINARY_DIR}/include")
+endif()
+
 # ============================== Ogg and Vorbis ==============================
 # The audio backend links Ogg::ogg and Vorbis::* on every platform, but the
 # branch of the platform switch that Android falls into does its find_package

@@ -159,14 +159,7 @@ endif()
 
 # Set game compilation version
 set(VERSION us)
-# SDL2_net has no NDK package and nothing fetches it for Android, so the
-# networking features are off there unless someone opts back in explicitly.
-if(ANDROID)
-    set(USE_NETWORKING_DEFAULT OFF)
-else()
-    set(USE_NETWORKING_DEFAULT ON)
-endif()
-option(USE_NETWORKING "Enable networking features" ${USE_NETWORKING_DEFAULT})
+option(USE_NETWORKING "Enable networking features" ON)
 set(SKIP_XCODE_VERSION_CHECK ON)
 
 if(ANDROID)
@@ -529,6 +522,7 @@ elseif(ANDROID)
     find_package(Ogg REQUIRED)
     find_package(Vorbis REQUIRED)
     set(ADDITIONAL_LIBRARY_DEPENDENCIES
+        "$<$<BOOL:${USE_NETWORKING}>:SDL2_net::SDL2_net>"
         "Ogg::ogg"
         "Vorbis::vorbis"
         "Vorbis::vorbisenc"
