@@ -21,8 +21,8 @@ void LighthouseMenu::AddMenuNetwork() {
     AddSidebarEntry("Network", path.sidebarName, 2);
 
     AddWidget(path,
-              ICON_FA_EXCLAMATION_TRIANGLE " The Network features are unavailable because SoH was compiled without "
-                                           "network support (\"ENABLE_REMOTE_CONTROL\" build flag).",
+              ICON_FA_EXCLAMATION_TRIANGLE " The Network features are unavailable because Lighthouse was compiled "
+                                           "without network support (\"USE_NETWORKING\" build flag).",
               WIDGET_TEXT)
         .Options(UIWidgets::TextOptions().Color(UIWidgets::Colors::Orange));
     return;
