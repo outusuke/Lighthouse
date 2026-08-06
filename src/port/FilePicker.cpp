@@ -18,7 +18,8 @@ namespace Android {
 // in flight), so the caller can fall back rather than drop the request. Takes
 // the callback by reference and only moves out of it once the pick is actually
 // under way, so the fallback path still has one to hand to the ImGui browser.
-bool RequestDocumentPick(std::function<void(std::optional<fs::path>)>& onResult);
+bool RequestDocumentPick(std::function<void(std::optional<fs::path>)>& onResult, bool save,
+                         const std::string& defaultName);
 void PumpDocumentPick();
 } // namespace Android
 #endif
@@ -47,14 +48,14 @@ static std::vector<std::string> ToPfdFilters(const std::vector<Ship::FileFilter>
 
 void PickFile(Ship::FileBrowserRequest request, std::function<void(std::optional<fs::path>)> onResult) {
 #ifdef __ANDROID__
-    // Open mode goes to the system document picker, which is the only way to
-    // reach a file the app does not already own — scoped storage leaves the
-    // ImGui browser able to see little more than the app's own directory, so a
-    // ROM sitting in Downloads or on Drive would be unreachable without this.
-    if (!request.Save && Android::RequestDocumentPick(onResult)) {
+    // Both directions go to the system document picker, the only way to reach
+    // anywhere outside the app's own directory: scoped storage leaves the ImGui
+    // browser seeing little else, so a ROM in Downloads would be unreachable
+    // and an exported save would land somewhere the user cannot get at.
+    if (Android::RequestDocumentPick(onResult, request.Save, request.DefaultName)) {
         return;
     }
-    // Save mode, or no activity to ask: fall through to the ImGui browser.
+    // No activity to ask: fall through to the ImGui browser.
 #endif
 #if LIGHTHOUSE_NATIVE_FILE_DIALOG
     const std::string startDir = request.StartDir.empty() ? "." : request.StartDir.string();

@@ -30,7 +30,6 @@
 #include <string>
 
 #include "port/Extractor/GameExtractor.h"
-#include "port/UI/LighthouseModMenuWindow.h"
 #include "ship/Context.h"
 #include "ship/window/Window.h"
 #include "ship/window/gui/Gui.h"
@@ -68,48 +67,72 @@ std::mutex gPickMutex;
 std::function<void(std::optional<std::filesystem::path>)> gPickCallback;
 std::optional<std::filesystem::path> gPickResult;
 bool gPickResultReady = false;
+// Save mode: the engine writes to the scratch path it was handed, and the file
+// only reaches the document the user chose once that write has finished.
+bool gPickIsSave = false;
 
-} // namespace
-
-namespace Lighthouse::Android {
-
-bool RequestDocumentPick(std::function<void(std::optional<std::filesystem::path>)>& onResult) {
+// Calls a no-argument or single-string method on the SDL activity. Returns false
+// if there is no activity yet, or the call threw.
+bool CallActivityMethod(const char* name, const char* signature, jstring argument = nullptr) {
     JNIEnv* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
     jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
     if (env == nullptr || activity == nullptr) {
-        // No activity yet — the launcher process, or the game before SDL is up.
         if (activity != nullptr) {
             env->DeleteLocalRef(activity);
         }
         return false;
     }
 
-    {
-        std::lock_guard<std::mutex> lock(gPickMutex);
-        if (gPickCallback) {
-            // One at a time: a second picker would strand the first callback.
-            __android_log_print(ANDROID_LOG_WARN, kLogTag, "A file pick is already in flight; ignoring");
-            env->DeleteLocalRef(activity);
-            return false;
-        }
-        gPickCallback = std::move(onResult);
-        gPickResultReady = false;
-        gPickResult.reset();
-    }
-
     jclass activityClass = env->GetObjectClass(activity);
-    jmethodID method = env->GetMethodID(activityClass, "requestDocumentPick", "()V");
-    bool started = false;
+    jmethodID method = env->GetMethodID(activityClass, name, signature);
+    bool ok = false;
     if (method != nullptr) {
-        env->CallVoidMethod(activity, method);
-        started = env->ExceptionCheck() == JNI_FALSE;
-        if (!started) {
+        if (argument != nullptr) {
+            env->CallVoidMethod(activity, method, argument);
+        } else {
+            env->CallVoidMethod(activity, method);
+        }
+        ok = env->ExceptionCheck() == JNI_FALSE;
+        if (!ok) {
             env->ExceptionDescribe();
             env->ExceptionClear();
         }
     }
     env->DeleteLocalRef(activityClass);
     env->DeleteLocalRef(activity);
+    return ok;
+}
+
+} // namespace
+
+namespace Lighthouse::Android {
+
+bool RequestDocumentPick(std::function<void(std::optional<std::filesystem::path>)>& onResult, bool save,
+                         const std::string& defaultName) {
+    {
+        std::lock_guard<std::mutex> lock(gPickMutex);
+        if (gPickCallback) {
+            // One at a time: a second picker would strand the first callback.
+            __android_log_print(ANDROID_LOG_WARN, kLogTag, "A file pick is already in flight; ignoring");
+            return false;
+        }
+        gPickCallback = std::move(onResult);
+        gPickResultReady = false;
+        gPickResult.reset();
+        gPickIsSave = save;
+    }
+
+    bool started;
+    if (save) {
+        JNIEnv* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+        jstring name = env != nullptr ? env->NewStringUTF(defaultName.c_str()) : nullptr;
+        started = CallActivityMethod("requestDocumentCreate", "(Ljava/lang/String;)V", name);
+        if (name != nullptr) {
+            env->DeleteLocalRef(name);
+        }
+    } else {
+        started = CallActivityMethod("requestDocumentPick", "()V");
+    }
 
     if (!started) {
         // Hand the callback back so PickFile can fall through to the ImGui
@@ -125,6 +148,7 @@ bool RequestDocumentPick(std::function<void(std::optional<std::filesystem::path>
 void PumpDocumentPick() {
     std::function<void(std::optional<std::filesystem::path>)> callback;
     std::optional<std::filesystem::path> result;
+    bool wasSave = false;
     {
         std::lock_guard<std::mutex> lock(gPickMutex);
         if (!gPickResultReady) {
@@ -135,11 +159,20 @@ void PumpDocumentPick() {
         result = std::move(gPickResult);
         gPickResult.reset();
         gPickResultReady = false;
+        wasSave = gPickIsSave;
+        gPickIsSave = false;
     }
     // Outside the lock: the callback reads the ROM and can open popups, and it
     // must be free to start the next pick without deadlocking on this mutex.
-    if (callback) {
-        callback(result);
+    if (!callback) {
+        return;
+    }
+    callback(result);
+
+    // The engine has now written the scratch file, so it can be copied into the
+    // document the user picked. Nothing to commit if they cancelled.
+    if (wasSave && result.has_value()) {
+        CallActivityMethod("commitCreatedDocument", "()V");
     }
 }
 
@@ -260,27 +293,6 @@ JNIEXPORT jboolean JNICALL Java_com_lighthouse_android_MainActivity_isMenuOpen(J
     }
 
     return gui->GetMenuOrMenubarVisible() ? JNI_TRUE : JNI_FALSE;
-}
-
-/**
- * Enable or disable a mod from the Android mods manager.
- *
- * This port records the mod list in the gSettings.EnabledMods /
- * DisabledMods cvars, keyed by filename, so a manager that renamed files to
- * mark them disabled would both fail to disable anything and break the name the
- * cvar refers to. It goes through the engine instead, which owns those lists and
- * is the only thing that should write them.
- *
- * Called from the UI thread with the game live behind it, so the change is
- * queued and applied on the render thread.
- */
-JNIEXPORT void JNICALL Java_com_lighthouse_android_ModStore_nativeSetModEnabled(JNIEnv* env, jobject, jstring jName,
-                                                                               jboolean enabled) {
-    const std::string name = ToStdString(env, jName);
-    if (name.empty()) {
-        return;
-    }
-    RequestSetModEnabled(name, enabled == JNI_TRUE);
 }
 
 /**

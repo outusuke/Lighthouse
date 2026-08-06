@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.util.Log
 import android.view.KeyEvent
@@ -41,6 +42,11 @@ class MainActivity : SDLActivity() {
 
     private lateinit var preferences: SharedPreferences
     private lateinit var modsButton: Button
+    private lateinit var controlGroup: ViewGroup
+
+    // Set between the create-document result and the engine finishing its write.
+    private var pendingCreateUri: Uri? = null
+    private var pendingCreateFile: File? = null
 
     private var controlsEnabled = true
     private var menuOpen = false
@@ -98,13 +104,86 @@ class MainActivity : SDLActivity() {
         }
     }
 
+    /**
+     * Opens the system "create document" sheet so the engine can write a file
+     * out — exporting a save, for instance.
+     *
+     * A created document is a content:// URI and the engine writes by path, so
+     * it is handed a scratch file instead; [commitCreatedDocument] copies that
+     * into the real destination once the write has finished.
+     */
+    @Suppress("unused") // via JNI
+    fun requestDocumentCreate(defaultName: String) {
+        runOnUiThread {
+            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "application/octet-stream"
+                putExtra(Intent.EXTRA_TITLE, defaultName)
+                // Only a hint, and only honoured on API 26+: start in Downloads
+                // rather than wherever the picker happened to be left.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    putExtra(DocumentsContract.EXTRA_INITIAL_URI, downloadsTreeUri())
+                }
+            }
+            runCatching { startActivityForResult(intent, REQUEST_CREATE_DOCUMENT) }
+                .onFailure { nativeDocumentPicked(null) }
+        }
+    }
+
+    /**
+     * Copies the scratch file the engine just wrote into the document the user
+     * chose. Called from the render thread once the write has returned.
+     */
+    @Suppress("unused") // via JNI
+    fun commitCreatedDocument() {
+        val uri = pendingCreateUri ?: return
+        val source = pendingCreateFile
+        pendingCreateUri = null
+        pendingCreateFile = null
+
+        if (source == null || !source.isFile) {
+            // The engine wrote nothing — an empty save slot, say. The picker
+            // created the document the moment Save was tapped, so without this
+            // a failed export leaves a 0-byte file sitting in the user's folder.
+            thread(name = "bk-doc-discard") {
+                runCatching { DocumentsContract.deleteDocument(contentResolver, uri) }
+                    .onFailure { Log.w(TAG, "Could not remove the unwritten export", it) }
+            }
+            return
+        }
+
+        thread(name = "bk-doc-save") {
+            runCatching {
+                contentResolver.openOutputStream(uri, "wt").use { output ->
+                    requireNotNull(output) { "The document provider did not open the destination." }
+                    source.inputStream().use { input -> input.copyTo(output, COPY_BUFFER_BYTES) }
+                }
+            }.onFailure { Log.e(TAG, "Could not write the exported file", it) }
+            source.delete()
+        }
+    }
+
+    private fun downloadsTreeUri(): Uri =
+        DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:Download")
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_PICK_DOCUMENT) return
+        if (requestCode != REQUEST_PICK_DOCUMENT && requestCode != REQUEST_CREATE_DOCUMENT) return
 
         val uri = data?.data
         if (resultCode != RESULT_OK || uri == null) {
             nativeDocumentPicked(null) // cancelled
+            return
+        }
+
+        if (requestCode == REQUEST_CREATE_DOCUMENT) {
+            // Give the engine a scratch path to write to; the result is copied
+            // into the chosen document by commitCreatedDocument().
+            val scratch = File(cacheDir, "export").apply { deleteRecursively(); mkdirs() }
+                .resolve("export.bin")
+            pendingCreateUri = uri
+            pendingCreateFile = scratch
+            nativeDocumentPicked(scratch.absolutePath)
             return
         }
 
@@ -221,6 +300,7 @@ class MainActivity : SDLActivity() {
         // Managing mods is a settings action, so it stays out of reach until
         // the menu is up.
         modsButton.visibility = if (open) View.VISIBLE else View.GONE
+        applyControlVisibility()
 
         if (open) {
             releaseAllInputs()
@@ -260,7 +340,7 @@ class MainActivity : SDLActivity() {
         }
         findViewById<ViewGroup>(android.R.id.content).addView(overlay)
 
-        val buttonGroup = overlay.findViewById<ViewGroup>(R.id.button_group)
+        controlGroup = overlay.findViewById(R.id.button_group)
 
         overlay.bindButton(R.id.buttonA, ControllerButtons.BUTTON_A)
         overlay.bindButton(R.id.buttonB, ControllerButtons.BUTTON_B)
@@ -288,7 +368,7 @@ class MainActivity : SDLActivity() {
 
         setupMenuButton(overlay.findViewById(R.id.buttonMenu))
         setupJoystick(overlay.findViewById(R.id.left_joystick), overlay.findViewById(R.id.left_joystick_knob))
-        setupToggleButton(overlay.findViewById(R.id.buttonToggle), buttonGroup)
+        setupToggleButton(overlay.findViewById(R.id.buttonToggle))
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -364,15 +444,30 @@ class MainActivity : SDLActivity() {
         }
     }
 
-    private fun setupToggleButton(button: Button, group: ViewGroup) {
+    private fun setupToggleButton(button: Button) {
         controlsHidden = preferences.getBoolean(KEY_CONTROLS_HIDDEN, false)
-        group.visibility = if (controlsHidden) View.INVISIBLE else View.VISIBLE
+        applyControlVisibility()
 
         button.setOnClickListener {
             controlsHidden = !controlsHidden
-            group.visibility = if (controlsHidden) View.INVISIBLE else View.VISIBLE
+            applyControlVisibility()
             preferences.edit().putBoolean(KEY_CONTROLS_HIDDEN, controlsHidden).apply()
         }
+    }
+
+    /**
+     * Hides the pad while the engine's menu is up.
+     *
+     * Not just cosmetic: the pad is drawn over the SDL surface the menu renders
+     * into, and a Button swallows a touch whether or not its listener acts on
+     * it. Leaving it up meant the L button covered the menu's sidebar and ate
+     * taps meant for it. An INVISIBLE view receives no touches, so hiding the
+     * group hands the whole screen back to the menu. Menu, Mods and the toggle
+     * sit outside the group so they stay reachable.
+     */
+    private fun applyControlVisibility() {
+        controlGroup.visibility =
+            if (menuOpen || controlsHidden) View.INVISIBLE else View.VISIBLE
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -434,6 +529,7 @@ class MainActivity : SDLActivity() {
         const val MENU_POLL_MS = 150L
 
         const val REQUEST_PICK_DOCUMENT = 0x1470
+        const val REQUEST_CREATE_DOCUMENT = 0x1471
         const val COPY_BUFFER_BYTES = 1 shl 17
     }
 }
