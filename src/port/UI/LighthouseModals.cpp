@@ -5,6 +5,7 @@
 #include "UIWidgets.hpp"
 #include "LighthouseGui.hpp"
 #include "LighthouseModMenuWindow.h"
+#include "port/FilePicker.h"
 
 struct LighthouseModal {
     std::string title_;
@@ -28,6 +29,15 @@ void LighthouseModalWindow::Draw() {
 }
 
 void LighthouseModalWindow::DrawElement() {
+    // Delivers an asynchronous file pick on the render thread, which is where
+    // FileBrowserRequest::OnResult is contracted to fire. This window is always
+    // drawn, so it is the one place guaranteed to run every frame.
+    Lighthouse::PumpFilePicker();
+
+    // Same reason: the Android mods manager toggles mods from the UI thread
+    // while the game runs behind it, and the mod lists belong to this thread.
+    PumpModEnableRequests();
+
     DrawInlineModExtraction();
 
     if (modals.size() > 0) {

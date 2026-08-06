@@ -3,10 +3,13 @@ package com.lighthouse.android
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.SharedPreferences
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.OpenableColumns
+import android.util.Log
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -20,6 +23,9 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import org.libsdl.app.SDLActivity
+import java.io.File
+import java.io.FileOutputStream
+import kotlin.concurrent.thread
 import kotlin.math.sqrt
 
 /**
@@ -59,6 +65,81 @@ class MainActivity : SDLActivity() {
     private external fun setButton(button: Int, value: Boolean)
     private external fun setAxis(axis: Int, value: Short)
     private external fun isMenuOpen(): Boolean
+    private external fun nativeDocumentPicked(path: String?)
+
+    /**
+     * Opens the system document picker on the engine's behalf.
+     *
+     * Called from the render thread through JNI (see AndroidBridge.cpp) whenever
+     * the engine asks for a file — picking a romhack ROM, a language pack, a
+     * save to import. libultraship's own ImGui browser is no use here: scoped
+     * storage leaves it able to see little beyond the app's own directory, so a
+     * ROM in Downloads or on Drive would be unreachable.
+     *
+     * The old startActivityForResult API rather than registerForActivityResult,
+     * because SDLActivity extends plain Activity and the newer contract needs a
+     * ComponentActivity.
+     */
+    @Suppress("unused") // via JNI
+    fun requestDocumentPick() {
+        runOnUiThread {
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                // Not narrowed by MIME: providers report .z64/.o2r inconsistently
+                // and an over-tight filter greys out the very file being sought.
+                type = "*/*"
+            }
+            runCatching { startActivityForResult(intent, REQUEST_PICK_DOCUMENT) }
+                .onFailure {
+                    // No document provider at all. Answer anyway — the engine is
+                    // holding a callback and would otherwise wait forever.
+                    nativeDocumentPicked(null)
+                }
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQUEST_PICK_DOCUMENT) return
+
+        val uri = data?.data
+        if (resultCode != RESULT_OK || uri == null) {
+            nativeDocumentPicked(null) // cancelled
+            return
+        }
+
+        // The engine opens files by path, but a picked document is a content://
+        // stream that may not have one at all, so it gets copied somewhere the
+        // engine can read. A ROM is tens of megabytes; not on the UI thread.
+        thread(name = "bk-doc-pick") {
+            val path = runCatching { copyToPickCache(uri) }
+                .onFailure { Log.e(TAG, "Could not read the picked document", it) }
+                .getOrNull()
+            nativeDocumentPicked(path)
+        }
+    }
+
+    /** Copies [uri] into the cache and returns its path. Previous picks are cleared first. */
+    private fun copyToPickCache(uri: Uri): String {
+        val dir = File(cacheDir, "picked").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val target = File(dir, pickedDisplayName(uri))
+        contentResolver.openInputStream(uri).use { input ->
+            requireNotNull(input) { "The document provider did not open the file." }
+            FileOutputStream(target).use { output -> input.copyTo(output, COPY_BUFFER_BYTES) }
+        }
+        return target.absolutePath
+    }
+
+    /** The provider's name for [uri], reduced to something safe as a filename. */
+    private fun pickedDisplayName(uri: Uri): String {
+        val name = contentResolver
+            .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+        return (name ?: "picked.bin").replace(Regex("""[/\\]"""), "_")
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         preferences = getSharedPreferences(PREFS, MODE_PRIVATE)
@@ -345,10 +426,14 @@ class MainActivity : SDLActivity() {
     }
 
     private companion object {
+        const val TAG = "Lighthouse"
         const val PREFS = "com.lighthouse.android.prefs"
         const val KEY_CONTROLS_HIDDEN = "controlsHidden"
 
         /** Fast enough to feel immediate on a menu toggle, cheap enough to ignore. */
         const val MENU_POLL_MS = 150L
+
+        const val REQUEST_PICK_DOCUMENT = 0x1470
+        const val COPY_BUFFER_BYTES = 1 shl 17
     }
 }

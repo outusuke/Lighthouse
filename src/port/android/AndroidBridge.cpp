@@ -24,9 +24,13 @@
 #include <atomic>
 #include <exception>
 #include <filesystem>
+#include <functional>
+#include <mutex>
+#include <optional>
 #include <string>
 
 #include "port/Extractor/GameExtractor.h"
+#include "port/UI/LighthouseModMenuWindow.h"
 #include "ship/Context.h"
 #include "ship/window/Window.h"
 #include "ship/window/gui/Gui.h"
@@ -53,7 +57,93 @@ std::string ToStdString(JNIEnv* env, jstring value) {
 SDL_Joystick* gVirtualJoystick = nullptr;
 int gVirtualJoystickId = -1;
 
+// --------------------------- document picker ---------------------------
+//
+// The engine asks for a file on the render thread and expects the answer on the
+// render thread, but the system picker is an activity result that lands on the
+// UI thread an arbitrary time later. So the callback is parked here, Kotlin
+// hands the answer back through nativeDocumentPicked, and the render thread
+// collects it on its next frame via PumpDocumentPick.
+std::mutex gPickMutex;
+std::function<void(std::optional<std::filesystem::path>)> gPickCallback;
+std::optional<std::filesystem::path> gPickResult;
+bool gPickResultReady = false;
+
 } // namespace
+
+namespace Lighthouse::Android {
+
+bool RequestDocumentPick(std::function<void(std::optional<std::filesystem::path>)>& onResult) {
+    JNIEnv* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+    jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+    if (env == nullptr || activity == nullptr) {
+        // No activity yet — the launcher process, or the game before SDL is up.
+        if (activity != nullptr) {
+            env->DeleteLocalRef(activity);
+        }
+        return false;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(gPickMutex);
+        if (gPickCallback) {
+            // One at a time: a second picker would strand the first callback.
+            __android_log_print(ANDROID_LOG_WARN, kLogTag, "A file pick is already in flight; ignoring");
+            env->DeleteLocalRef(activity);
+            return false;
+        }
+        gPickCallback = std::move(onResult);
+        gPickResultReady = false;
+        gPickResult.reset();
+    }
+
+    jclass activityClass = env->GetObjectClass(activity);
+    jmethodID method = env->GetMethodID(activityClass, "requestDocumentPick", "()V");
+    bool started = false;
+    if (method != nullptr) {
+        env->CallVoidMethod(activity, method);
+        started = env->ExceptionCheck() == JNI_FALSE;
+        if (!started) {
+            env->ExceptionDescribe();
+            env->ExceptionClear();
+        }
+    }
+    env->DeleteLocalRef(activityClass);
+    env->DeleteLocalRef(activity);
+
+    if (!started) {
+        // Hand the callback back so PickFile can fall through to the ImGui
+        // browser rather than leaving the caller waiting on nothing.
+        std::lock_guard<std::mutex> lock(gPickMutex);
+        onResult = std::move(gPickCallback);
+        gPickCallback = nullptr;
+        __android_log_print(ANDROID_LOG_ERROR, kLogTag, "Could not start the document picker");
+    }
+    return started;
+}
+
+void PumpDocumentPick() {
+    std::function<void(std::optional<std::filesystem::path>)> callback;
+    std::optional<std::filesystem::path> result;
+    {
+        std::lock_guard<std::mutex> lock(gPickMutex);
+        if (!gPickResultReady) {
+            return;
+        }
+        callback = std::move(gPickCallback);
+        gPickCallback = nullptr;
+        result = std::move(gPickResult);
+        gPickResult.reset();
+        gPickResultReady = false;
+    }
+    // Outside the lock: the callback reads the ROM and can open popups, and it
+    // must be free to start the next pick without deadlocking on this mutex.
+    if (callback) {
+        callback(result);
+    }
+}
+
+} // namespace Lighthouse::Android
 
 extern "C" {
 
@@ -112,6 +202,33 @@ JNIEXPORT void JNICALL Java_com_lighthouse_android_MainActivity_setAxis(JNIEnv*,
 }
 
 /**
+ * Result of a document pick, called from the UI thread once the activity result
+ * has been copied somewhere the engine can open by path.
+ *
+ * A null path means cancelled, which the engine's callbacks already handle as
+ * std::nullopt. The callback is not run here: it belongs on the render thread,
+ * so it is parked for PumpDocumentPick to collect on the next frame.
+ */
+JNIEXPORT void JNICALL Java_com_lighthouse_android_MainActivity_nativeDocumentPicked(JNIEnv* env, jobject,
+                                                                                    jstring jPath) {
+    std::optional<std::filesystem::path> result;
+    if (jPath != nullptr) {
+        const std::string path = ToStdString(env, jPath);
+        if (!path.empty()) {
+            result = std::filesystem::path(path);
+        }
+    }
+
+    std::lock_guard<std::mutex> lock(gPickMutex);
+    if (!gPickCallback) {
+        __android_log_print(ANDROID_LOG_WARN, kLogTag, "Document pick result with nothing waiting for it");
+        return;
+    }
+    gPickResult = std::move(result);
+    gPickResultReady = true;
+}
+
+/**
  * Whether libultraship's menu is currently up.
  *
  * The overlay needs this because the menu is not only opened by its own Menu
@@ -143,6 +260,27 @@ JNIEXPORT jboolean JNICALL Java_com_lighthouse_android_MainActivity_isMenuOpen(J
     }
 
     return gui->GetMenuOrMenubarVisible() ? JNI_TRUE : JNI_FALSE;
+}
+
+/**
+ * Enable or disable a mod from the Android mods manager.
+ *
+ * This port records the mod list in the gSettings.EnabledMods /
+ * DisabledMods cvars, keyed by filename, so a manager that renamed files to
+ * mark them disabled would both fail to disable anything and break the name the
+ * cvar refers to. It goes through the engine instead, which owns those lists and
+ * is the only thing that should write them.
+ *
+ * Called from the UI thread with the game live behind it, so the change is
+ * queued and applied on the render thread.
+ */
+JNIEXPORT void JNICALL Java_com_lighthouse_android_ModStore_nativeSetModEnabled(JNIEnv* env, jobject, jstring jName,
+                                                                               jboolean enabled) {
+    const std::string name = ToStdString(env, jName);
+    if (name.empty()) {
+        return;
+    }
+    RequestSetModEnabled(name, enabled == JNI_TRUE);
 }
 
 /**
