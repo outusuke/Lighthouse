@@ -142,35 +142,6 @@
 
         <!-- =========================== centre =========================== -->
 
-        <!-- Opens libultraship's menu (Escape) -->
-        <Button
-            android:id="@+id/buttonMenu"
-            android:layout_width="60dp"
-            android:layout_height="35dp"
-            android:layout_marginTop="20dp"
-            android:background="@drawable/ic_rectangular_button"
-            android:text="@string/menu_button"
-            android:textColor="#25FFFFFF"
-            android:textSize="12sp"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent" />
-
-        <!-- Only while the in-game menu is open; MainActivity flips its visibility -->
-        <Button
-            android:id="@+id/buttonMods"
-            android:layout_width="60dp"
-            android:layout_height="35dp"
-            android:layout_marginStart="8dp"
-            android:background="@drawable/ic_rectangular_button"
-            android:text="@string/mods_button"
-            android:textColor="#25FFFFFF"
-            android:textSize="12sp"
-            android:visibility="gone"
-            app:layout_constraintBottom_toBottomOf="@id/buttonMenu"
-            app:layout_constraintStart_toEndOf="@id/buttonMenu"
-            app:layout_constraintTop_toTopOf="@id/buttonMenu" />
-
         <Button
             android:id="@+id/buttonStart"
             android:layout_width="56dp"
@@ -277,6 +248,35 @@
             app:layout_constraintStart_toEndOf="@id/buttonCDown"
             app:layout_constraintTop_toBottomOf="@id/buttonCUp" />
     </androidx.constraintlayout.widget.ConstraintLayout>
+
+        <!-- Opens libultraship's menu (Escape) -->
+    <Button
+        android:id="@+id/buttonMenu"
+        android:layout_width="60dp"
+        android:layout_height="35dp"
+        android:layout_marginTop="20dp"
+        android:background="@drawable/ic_rectangular_button"
+        android:text="@string/menu_button"
+        android:textColor="#25FFFFFF"
+        android:textSize="12sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <!-- Only while the in-game menu is open; MainActivity flips its visibility -->
+    <Button
+        android:id="@+id/buttonMods"
+        android:layout_width="60dp"
+        android:layout_height="35dp"
+        android:layout_marginStart="8dp"
+        android:background="@drawable/ic_rectangular_button"
+        android:text="@string/mods_button"
+        android:textColor="#25FFFFFF"
+        android:textSize="12sp"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="@id/buttonMenu"
+        app:layout_constraintStart_toEndOf="@id/buttonMenu"
+        app:layout_constraintTop_toTopOf="@id/buttonMenu" />
 
     <!--
         Outside button_group so it survives hiding the controls. Top right,
