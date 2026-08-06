@@ -14,13 +14,17 @@ import java.util.zip.ZipOutputStream
 /**
  * The mods folder, as the engine sees it.
  *
- * Which mods are on, and in what order, is not a property of the folder: the
- * engine keeps it in the `gSettings.EnabledMods` / `gSettings.DisabledMods`
- * cvars, pipe-separated and keyed by filename, and loads them in the order the
- * enabled list gives (see src/port/UI/LighthouseModMenuWindow.cpp). This class
- * reads that list out of lighthouse.cfg.json to show state, and changes it by
- * calling into the running engine — never by renaming files, which would change
- * the very key the cvars refer to.
+ * This manages mod *files* — importing, exporting, deleting. It deliberately
+ * does not turn mods on or off: which are enabled, and in what order, is not a
+ * property of the folder at all. The engine keeps it in the
+ * `gSettings.EnabledMods` / `gSettings.DisabledMods` cvars, pipe-separated and
+ * keyed by filename (see src/port/UI/LighthouseModMenuWindow.cpp), and applies
+ * changes on restart. Its own Mod Menu owns that, along with the conflict and
+ * romhack-scoping rules that go with it; this class only reads the cvars out of
+ * lighthouse.cfg.json so it can show which mods are on.
+ *
+ * Nothing here renames a file, because the filename is the key those cvars refer
+ * to — renaming one silently detaches it from its own enabled state.
  *
  * A mod is one of three things, all of which the engine accepts:
  *   - an `.o2r` archive
@@ -80,26 +84,6 @@ object ModStore {
         return ordered.values.toList()
     }
 
-    /**
-     * Toggles a mod through the engine rather than by touching the file.
-     *
-     * The engine keys its enabled/disabled cvars by filename, so renaming a file
-     * to mark it disabled would both fail to disable it and break the name the
-     * cvar refers to. Writing lighthouse.cfg.json from here would not work
-     * either: the engine is running behind this screen and would overwrite the
-     * file from its own in-memory state.
-     */
-    fun setEnabled(mod: Mod, enabled: Boolean): String? {
-        if (mod.enabled == enabled) return null
-        return try {
-            nativeSetModEnabled(mod.name, enabled)
-            null
-        } catch (error: UnsatisfiedLinkError) {
-            Log.e(TAG, "Engine not available to toggle ${mod.name}", error)
-            "Could not reach the game to change ${mod.name}."
-        }
-    }
-
     /** Reads a pipe-separated mod cvar out of the engine's config file. */
     private fun readModCVar(context: Context, key: String): List<String> {
         val config = File(GameAssets.gameDir(context), CONFIG_NAME)
@@ -116,34 +100,8 @@ object ModStore {
         }
     }
 
-    private external fun nativeSetModEnabled(name: String, enabled: Boolean)
-
     fun delete(mod: Mod): String? =
         if (mod.file.deleteRecursively()) null else "Could not delete ${mod.name}."
-
-    /**
-     * Reorders the enabled mods by replaying them through the engine.
-     *
-     * Load order is the order of the names in the EnabledMods cvar, so it is
-     * changed by re-enabling them in the wanted order rather than by renaming
-     * files. Renaming would change the very name the cvar refers to, which is
-     * how the previous filename-prefix scheme silently disabled whatever it
-     * reordered.
-     */
-    fun applyOrder(mods: List<Mod>): String? {
-        return try {
-            // EnableMod inserts at the front, so applying in reverse leaves the
-            // list in the order shown.
-            for (mod in mods.filter { it.enabled }.asReversed()) {
-                nativeSetModEnabled(mod.name, false)
-                nativeSetModEnabled(mod.name, true)
-            }
-            null
-        } catch (error: UnsatisfiedLinkError) {
-            Log.e(TAG, "Engine not available to reorder mods", error)
-            "Could not reach the game to reorder the mods."
-        }
-    }
 
     /** Copies an `.o2r`/`.zip` picked through the document picker into the mods folder. */
     fun importArchive(context: Context, uri: Uri): String? {

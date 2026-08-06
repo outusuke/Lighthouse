@@ -43,17 +43,6 @@ std::string GetActiveRomhackBasename();
 void EnableMod(std::string file);
 void DisableMod(std::string file);
 
-// Enable or disable a mod from a thread that is not the render thread — the
-// Android mods manager runs on the UI thread while the game is live behind it.
-// The change is queued and applied by PumpModEnableRequests(), because the mod
-// lists belong to the render thread and the engine must stay the only writer of
-// the EnabledMods/DisabledMods cvars; a second writer editing the config file
-// would just be overwritten when the engine next saves.
-void RequestSetModEnabled(const std::string& file, bool enabled);
-
-// Applies anything RequestSetModEnabled() queued, then persists. Called once per
-// frame from the always-visible modal window. A no-op when nothing is queued.
-void PumpModEnableRequests();
 
 // If UpdateModFiles(true) detected multiple enabled mods carrying
 // assets/aGameConfig at boot, show an ImGui popup explaining that they were

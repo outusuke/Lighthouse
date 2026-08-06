@@ -5,10 +5,8 @@
 #include <algorithm>
 #include <cctype>
 #include <memory>
-#include <mutex>
 #include <thread>
 #include <functional>
-#include <utility>
 
 #include <libultraship/libultraship.h>
 #include <libultraship/bridge/consolevariablebridge.h>
@@ -448,38 +446,6 @@ void EnableMod(std::string file) {
     // TODO: runtime changes
     // GetArchiveManager()->AddArchive(file);
     AfterModChange();
-}
-
-namespace {
-// Queue for RequestSetModEnabled(). Small and drained every frame, so a plain
-// vector under a mutex is enough.
-std::mutex sModEnableMutex;
-std::vector<std::pair<std::string, bool>> sPendingModEnables;
-} // namespace
-
-void RequestSetModEnabled(const std::string& file, bool enabled) {
-    std::lock_guard<std::mutex> lock(sModEnableMutex);
-    sPendingModEnables.emplace_back(file, enabled);
-}
-
-void PumpModEnableRequests() {
-    std::vector<std::pair<std::string, bool>> pending;
-    {
-        std::lock_guard<std::mutex> lock(sModEnableMutex);
-        if (sPendingModEnables.empty()) {
-            return;
-        }
-        pending.swap(sPendingModEnables);
-    }
-
-    for (const auto& [file, enabled] : pending) {
-        if (enabled) {
-            EnableMod(file);
-        } else {
-            DisableMod(file);
-        }
-    }
-    SetEnabledModsCVarValue();
 }
 
 void DisableMod(std::string file) {

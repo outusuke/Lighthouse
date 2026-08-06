@@ -81,7 +81,9 @@ class ModsActivity : ComponentActivity() {
         })
 
         root.addView(TextView(this).apply {
-            text = "Loaded top to bottom. A mod lower in the list overrides the ones above it."
+            text = "Import, export and delete mod files here.\n" +
+                "Turn mods on or off in the game's own Mod Menu (Settings \u2192 Mod Menu), " +
+                "which owns the load order and applies it on restart."
             setTextColor(SUBTLE)
             textSize = 12f
             setPadding(0, dp(4), 0, dp(8))
@@ -134,9 +136,6 @@ class ModsActivity : ComponentActivity() {
             setBackgroundColor(if (index % 2 == 0) ROW_EVEN else ROW_ODD)
         }
 
-        row.addView(button("▲") { move(index, index - 1) }.apply { isEnabled = index > 0 })
-        row.addView(button("▼") { move(index, index + 1) }.apply { isEnabled = index < mods.size - 1 })
-
         val label = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         label.addView(TextView(this).apply {
             text = mod.name
@@ -150,9 +149,6 @@ class ModsActivity : ComponentActivity() {
         })
         row.addView(label, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 
-        row.addView(button(if (mod.enabled) "Disable" else "Enable") {
-            apply(ModStore.setEnabled(mod, !mod.enabled))
-        })
         row.addView(button("Export") {
             pendingExport = mod
             exportMod.launch(ModStore.exportName(mod))
@@ -160,12 +156,6 @@ class ModsActivity : ComponentActivity() {
         row.addView(button("Delete") { confirmDelete(mod) })
 
         return row
-    }
-
-    private fun move(from: Int, to: Int) {
-        if (to !in mods.indices) return
-        mods.add(to, mods.removeAt(from))
-        apply(ModStore.applyOrder(mods))
     }
 
     private fun confirmDelete(mod: ModStore.Mod) {

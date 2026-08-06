@@ -34,10 +34,6 @@ void LighthouseModalWindow::DrawElement() {
     // drawn, so it is the one place guaranteed to run every frame.
     Lighthouse::PumpFilePicker();
 
-    // Same reason: the Android mods manager toggles mods from the UI thread
-    // while the game runs behind it, and the mod lists belong to this thread.
-    PumpModEnableRequests();
-
     DrawInlineModExtraction();
 
     if (modals.size() > 0) {
