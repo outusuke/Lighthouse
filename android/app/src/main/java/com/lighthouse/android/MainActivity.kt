@@ -280,6 +280,19 @@ class MainActivity : SDLActivity() {
         handler.removeCallbacks(menuWatcher)
         detachController()
         super.onDestroy()
+
+        // SDL finishes this activity when SDL_main returns — quitting from the
+        // engine's menu, say — but leaves the process running, and SDL_main
+        // cannot be entered twice in one process. The engine's globals survive
+        // it half torn down, so the next launch reaches
+        // GameEngine::FinishInit() with a null Fast3D interpreter and segfaults
+        // on SetTargetFps. It only happens once because the crash is what
+        // finally ends the process.
+        //
+        // Ending it here instead makes every launch a fresh one. Backing out
+        // with Home does not come through here, so that still resumes the
+        // running game rather than restarting it.
+        Runtime.getRuntime().exit(0)
     }
 
     /**
