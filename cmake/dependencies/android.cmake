@@ -108,3 +108,24 @@ if(NOT Vorbis_FOUND)
         endif()
     endforeach()
 endif()
+
+# ============================ libultraship patch ============================
+# arm64 top-byte-ignore fix, not upstream yet (Kenix3/libultraship#1214). Written
+# by izzy2lost. Drop this block and the patch file once it lands in the pin.
+set(_lh_lus_patch ${CMAKE_CURRENT_SOURCE_DIR}/android/patches/libultraship-arm64-tbi.patch)
+execute_process(
+    COMMAND git apply --check --reverse ${_lh_lus_patch}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/libultraship
+    RESULT_VARIABLE _lh_lus_patched
+    OUTPUT_QUIET ERROR_QUIET
+)
+if(NOT _lh_lus_patched EQUAL 0)
+    execute_process(
+        COMMAND git apply ${_lh_lus_patch}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/libultraship
+        RESULT_VARIABLE _lh_lus_result
+    )
+    if(NOT _lh_lus_result EQUAL 0)
+        message(FATAL_ERROR "Could not apply ${_lh_lus_patch} to libultraship")
+    endif()
+endif()
