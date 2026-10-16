@@ -16,7 +16,7 @@ import java.util.zip.ZipInputStream
  * is also somewhere the user can reach with a file manager, which is what makes
  * dropping mods in possible, so everything lives there:
  *
- *     Android/data/com.lighthouse.android/files/
+ *     Android/media/com.lighthouse.android/
  *       baserom.us.z64       the user's ROM, copied in by the launcher
  *       config.yml, assets/  Torch's extraction recipes, unpacked from the APK
  *       lighthouse.o2r       engine assets, built on CI and shipped in the APK
@@ -52,8 +52,10 @@ object GameAssets {
     private const val GAMEDATA_VERSION = "gamedata.version"
     private const val STAMP = ".gamedata.version"
 
+    // Deprecated since API 30, but still the way to reach Android/media, which Syncthing can sync.
+    @Suppress("DEPRECATION")
     fun gameDir(context: Context): File =
-        (context.getExternalFilesDir(null) ?: context.filesDir).also { it.mkdirs() }
+        (context.externalMediaDirs.firstOrNull { it != null } ?: context.filesDir).also { it.mkdirs() }
 
     fun romFile(context: Context) = File(gameDir(context), ROM_NAME)
 

@@ -66,6 +66,10 @@ class MainActivity : SDLActivity() {
     // their version, so both have to move together.
     override fun getLibraries(): Array<String> = arrayOf("SDL2", "main")
 
+    // SDL resolves the engine's directory through this, so it has to agree with GameAssets.gameDir.
+    override fun getExternalFilesDir(type: String?): File? =
+        if (type == null) GameAssets.gameDir(this) else super.getExternalFilesDir(type)
+
     private external fun attachController()
     private external fun detachController()
     private external fun setButton(button: Int, value: Boolean)
