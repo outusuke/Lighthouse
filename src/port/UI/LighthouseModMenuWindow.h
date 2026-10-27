@@ -7,7 +7,7 @@ class LighthouseModMenuWindow : public Ship::GuiWindow {
 public:
     using GuiWindow::GuiWindow;
 
-    void InitElement() override;
+    void InitElement() override{};
     void DrawElement() override;
     void UpdateElement() override{};
 };
@@ -25,9 +25,8 @@ public:
     void UpdateElement() override{};
 };
 
-// Public so Engine.cpp can drive an initial scan before the GUI window
-// initializes (so enabled mods are present in the ArchiveManager when the
-// resource manager wakes up).
+// Engine.cpp runs the one boot scan (init), which also loads the enabled mods
+// into the ArchiveManager before the resource manager wakes up.
 void UpdateModFiles(bool init = false, bool reset = false);
 
 // True if `topLevelName` (a directory directly under mods/) is a romhack's
@@ -50,10 +49,8 @@ void DisableMod(std::string file);
 // modal window is initialized (i.e. after LighthouseGui::SetupGuiElements).
 void MaybeShowModConflictPopup();
 
-// If UpdateModFiles(true) refused to load romhack overlays because the base
-// bk.o2r is not US v1.0, show an ImGui popup explaining they were disabled.
-// Must be called only after the modal window is initialized.
-void MaybeShowRomhackBaseMismatchPopup();
+void NoteOutdatedLanguagePack(const std::string& name);
+void MaybeShowOutdatedArchivesPopup();
 
 // Ensure the mod o2r named `keepBasename` is the only enabled overlay carrying
 // assets/aGameConfig. Called right after an inline extraction succeeds so the

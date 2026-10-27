@@ -5,7 +5,10 @@
 #include <string>
 #include <zip.h>
 
+#include "port/build.h"
 #include "ship/Context.h"
+#include "ship/resource/archive/Archive.h"
+#include "ship/resource/archive/ArchiveManager.h"
 #include <spdlog/spdlog.h>
 
 namespace Lighthouse {
@@ -24,11 +27,56 @@ bool IsKnownVersion(uint32_t crc) {
     }
 }
 
+const char* VersionName(BKVersion version) {
+    switch (version) {
+        case BK_VER_US_11:
+            return "US 1.1";
+        case BK_VER_PAL:
+            return "PAL";
+        case BK_VER_JP:
+            return "JP";
+        case BK_VER_US_10:
+        default:
+            return "US 1.0";
+    }
+}
+
 uint32_t ByteSwap32(uint32_t v) {
     return (v >> 24) | ((v >> 8) & 0x0000FF00u) | ((v << 8) & 0x00FF0000u) | (v << 24);
 }
 
+uint32_t StampedCrc(const uint8_t* stamp) {
+    return (static_cast<uint32_t>(stamp[1]) << 24) | (static_cast<uint32_t>(stamp[2]) << 16) |
+           (static_cast<uint32_t>(stamp[3]) << 8) | static_cast<uint32_t>(stamp[4]);
+}
+
+std::shared_ptr<Ship::Archive> MountedArchive(const std::string& archivePath) {
+    auto context = Ship::Context::GetRawInstance();
+    if (context == nullptr || context->GetResourceManager() == nullptr) {
+        return nullptr;
+    }
+    auto archives = context->GetResourceManager()->GetArchiveManager()->GetArchives();
+    if (archives == nullptr) {
+        return nullptr;
+    }
+    for (const auto& archive : *archives) {
+        if (archive != nullptr && archive->GetPath() == archivePath) {
+            return archive;
+        }
+    }
+    return nullptr;
+}
+
 bool ReadStampedCrc(const std::string& archivePath, uint32_t& outCrc) {
+    if (auto archive = MountedArchive(archivePath)) {
+        auto file = archive->LoadFile("version");
+        if (file == nullptr || !file->IsLoaded || file->Buffer->size() < 5) {
+            return false;
+        }
+        outCrc = StampedCrc(reinterpret_cast<const uint8_t*>(file->Buffer->data()));
+        return true;
+    }
+
     int err = 0;
     zip_t* z = zip_open(archivePath.c_str(), ZIP_RDONLY, &err);
     if (z == nullptr) {
@@ -40,8 +88,7 @@ bool ReadStampedCrc(const std::string& archivePath, uint32_t& outCrc) {
         if (zip_file_t* f = zip_fopen_index(z, idx, 0)) {
             uint8_t buf[5] = {};
             if (zip_fread(f, buf, sizeof(buf)) == sizeof(buf)) {
-                outCrc = (static_cast<uint32_t>(buf[1]) << 24) | (static_cast<uint32_t>(buf[2]) << 16) |
-                         (static_cast<uint32_t>(buf[3]) << 8) | static_cast<uint32_t>(buf[4]);
+                outCrc = StampedCrc(buf);
                 ok = true;
             }
             zip_fclose(f);
@@ -79,8 +126,7 @@ BKVersion GetBaseVersion() {
     if (ReadStampedCrc(basePath, crc) && ClassifyArchiveVersion(crc, version)) {
         sVersion = version;
         sResolved = true;
-        SPDLOG_INFO("[BaseGameVersion] base bk.o2r CRC 0x{:08X} -> BKVersion 0x{:08X}", crc,
-                    static_cast<uint32_t>(sVersion));
+        SPDLOG_INFO("[BaseGameVersion] Base bk.o2r is {}", VersionName(sVersion));
     }
     return sVersion; // unstamped or unrecognised: stay on the v1.0 default and retry
 }
@@ -98,8 +144,27 @@ bool ClassifyArchiveVersion(uint32_t rawVersion, BKVersion& out) {
     return false;
 }
 
-bool BaseGameSupportsRomhacks() {
-    return GetBaseVersion() == BK_VER_US_10;
+ArchiveStamp ReadArchiveStamp(const std::string& archivePath) {
+    int err = 0;
+    zip_t* z = zip_open(archivePath.c_str(), ZIP_RDONLY, &err);
+    if (z == nullptr) {
+        return ArchiveStamp::None;
+    }
+
+    ArchiveStamp stamp = ArchiveStamp::None;
+    if (zip_file_t* f = zip_fopen(z, "portVersion", 0)) {
+        uint8_t buf[4] = {};
+        if (zip_fread(f, buf, sizeof(buf)) == sizeof(buf)) {
+            const uint16_t major = static_cast<uint16_t>((buf[0] << 8) | buf[1]);
+            const uint16_t minor = static_cast<uint16_t>((buf[2] << 8) | buf[3]);
+            stamp = (major == gBuildVersionMajor && minor == gBuildVersionMinor) ? ArchiveStamp::Current
+                                                                                 : ArchiveStamp::Outdated;
+        }
+        zip_fclose(f);
+    }
+
+    zip_close(z);
+    return stamp;
 }
 
 std::string BaseRegionSlug() {

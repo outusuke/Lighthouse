@@ -11,6 +11,7 @@
 #include "port/Localization/Language.h"
 #include "port/Save/SaveConverter.h"
 #include "UIWidgets.hpp"
+#include <fast/Fast3dWindow.h>
 #include <spdlog/fmt/fmt.h>
 
 #include "variables.h"
@@ -314,8 +315,8 @@ void LighthouseMenu::AddMenuSettings() {
                      .Tooltip("Changes the scaling of the ImGui menu elements.")
                      .DefaultIndex(1)
                      .ComponentAlignment(ComponentAlignments::Right)
-                     .LabelPosition(LabelPositions::Far));
-    //.Callback([](WidgetInfo& info) { GameEngine::Instance->ScaleImGui(); });
+                     .LabelPosition(LabelPositions::Far))
+        .Callback([](WidgetInfo& info) { GameEngine::Instance->ScaleImGui(); });
 
     // Audio Settings
     path.sidebarName = "Audio";
@@ -326,6 +327,14 @@ void LighthouseMenu::AddMenuSettings() {
         .CVar(CVAR_SETTING("Volume.Master"))
         .RaceDisable(false)
         .Options(IntSliderOptions().Min(0).Max(100).DefaultValue(40).ShowButtons(true).Format("%d%%"));
+    AddWidget(path, "Music Volume", WIDGET_CVAR_SLIDER_INT)
+        .CVar(CVAR_SETTING("Volume.Music"))
+        .RaceDisable(false)
+        .Options(IntSliderOptions().Min(0).Max(100).DefaultValue(100).ShowButtons(true).Format("%d%%"));
+    AddWidget(path, "Sound Effects Volume", WIDGET_CVAR_SLIDER_INT)
+        .CVar(CVAR_SETTING("Volume.SFX"))
+        .RaceDisable(false)
+        .Options(IntSliderOptions().Min(0).Max(100).DefaultValue(100).ShowButtons(true).Format("%d%%"));
     AddWidget(path, "Audio API (Needs reload)", WIDGET_AUDIO_BACKEND).RaceDisable(false);
 
     // Graphics Settings
@@ -427,9 +436,28 @@ void LighthouseMenu::AddMenuSettings() {
         .Options(CheckboxOptions()
                      .Tooltip("Allows multiple windows to be opened at once. Requires a reload to take effect.")
                      .DefaultValue(true));
-    AddWidget(path, "Texture Filter (Needs reload)", WIDGET_CVAR_COMBOBOX)
+    AddWidget(path, "Enable Mipmaps", WIDGET_CVAR_CHECKBOX)
+        .CVar(CVAR_SETTING("Mipmaps"))
+        .RaceDisable(false)
+        .Callback([](WidgetInfo& info) {
+            auto fastWnd = dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
+            if (auto interpreter = fastWnd ? fastWnd->GetInterpreterWeak().lock() : nullptr) {
+                interpreter->SetMipmapsEnabled(CVarGetInteger(CVAR_SETTING("Mipmaps"), 1));
+            }
+        })
+        .Options(CheckboxOptions()
+                     .Tooltip("Draws distant textures at lower detail so they don't shimmer. Off draws every "
+                              "texture at full size.")
+                     .DefaultValue(true));
+    AddWidget(path, "Texture Filter", WIDGET_CVAR_COMBOBOX)
         .CVar(CVAR_TEXTURE_FILTER)
         .RaceDisable(false)
+        .Callback([](WidgetInfo& info) {
+            if (auto fastWnd = dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow())) {
+                fastWnd->SetTextureFilter(
+                    (Fast::FilteringMode)CVarGetInteger(CVAR_TEXTURE_FILTER, Fast::FILTER_THREE_POINT));
+            }
+        })
         .Options(ComboboxOptions().Tooltip("Sets the applied Texture Filtering.").ComboMap(textureFilteringMap));
 
     path.column = SECTION_COLUMN_2;
